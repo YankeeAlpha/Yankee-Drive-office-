@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yankee Text</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar writer">
+  <a class="brand" href="index.html" title="Späť na prehľad">◀ Yankee Text</a>
+  <input class="title-input" id="title" aria-label="Názov dokumentu">
+  <span class="spacer"></span>
+  <span class="status" id="status"></span>
+  <button class="tb-btn" id="new">Nový</button>
+  <label class="tb-btn">Otvoriť<input type="file" id="open" accept=".html,.htm,.txt,.doc" hidden></label>
+  <select class="tb-btn" id="export" aria-label="Exportovať">
+    <option value="">Uložiť ako…</option>
+    <option value="doc">Word (.doc)</option>
+    <option value="html">Webová stránka (.html)</option>
+    <option value="txt">Čistý text (.txt)</option>
+    <option value="pdf">PDF / Tlač</option>
+  </select>
+</header>
+
+<div class="toolbar" id="toolbar">
+  <button data-cmd="undo" title="Späť (Ctrl+Z)">↶</button>
+  <button data-cmd="redo" title="Znova (Ctrl+Y)">↷</button>
+  <span class="sep"></span>
+  <select id="block" title="Štýl odseku">
+    <option value="p">Normálny</option>
+    <option value="h1">Nadpis 1</option>
+    <option value="h2">Nadpis 2</option>
+    <option value="h3">Nadpis 3</option>
+    <option value="blockquote">Citát</option>
+    <option value="pre">Kód</option>
+  </select>
+  <select id="font" title="Písmo">
+    <option value="Calibri, Carlito, sans-serif">Calibri</option>
+    <option value="Arial, sans-serif">Arial</option>
+    <option value="'Times New Roman', serif">Times New Roman</option>
+    <option value="Georgia, serif">Georgia</option>
+    <option value="Verdana, sans-serif">Verdana</option>
+    <option value="'Courier New', monospace">Courier New</option>
+  </select>
+  <select id="size" title="Veľkosť písma">
+    <option value="1">8</option><option value="2">10</option><option value="3" selected>12</option>
+    <option value="4">14</option><option value="5">18</option><option value="6">24</option><option value="7">36</option>
+  </select>
+  <span class="sep"></span>
+  <button data-cmd="bold" title="Tučné (Ctrl+B)"><b>B</b></button>
+  <button data-cmd="italic" title="Kurzíva (Ctrl+I)"><i>I</i></button>
+  <button data-cmd="underline" title="Podčiarknuté (Ctrl+U)"><u>U</u></button>
+  <button data-cmd="strikeThrough" title="Prečiarknuté"><s>S</s></button>
+  <span class="lbl">A</span><input type="color" id="fore" value="#000000" title="Farba písma">
+  <span class="lbl">▮</span><input type="color" id="back" value="#ffff00" title="Zvýraznenie">
+  <span class="sep"></span>
+  <button data-cmd="justifyLeft" title="Zarovnať vľavo">⯇</button>
+  <button data-cmd="justifyCenter" title="Na stred">≡</button>
+  <button data-cmd="justifyRight" title="Zarovnať vpravo">⯈</button>
+  <button data-cmd="justifyFull" title="Do bloku">☰</button>
+  <span class="sep"></span>
+  <button data-cmd="insertUnorderedList" title="Odrážky">• ≡</button>
+  <button data-cmd="insertOrderedList" title="Číslovanie">1. ≡</button>
+  <button data-cmd="outdent" title="Zmenšiť odsadenie">⇤</button>
+  <button data-cmd="indent" title="Zväčšiť odsadenie">⇥</button>
+  <span class="sep"></span>
+  <button id="link" title="Vložiť odkaz">🔗</button>
+  <label class="btn" title="Vložiť obrázok">🖼<input type="file" id="img" accept="image/*" hidden></label>
+  <button id="table" title="Vložiť tabuľku">▦</button>
+  <button data-cmd="insertHorizontalRule" title="Vodorovná čiara">―</button>
+  <button id="date" title="Vložiť dnešný dátum">📅</button>
+  <button data-cmd="removeFormat" title="Vymazať formátovanie">⌫</button>
+  <span class="sep"></span>
+  <button id="find" title="Nájsť a nahradiť (Ctrl+H)">🔍</button>
+</div>
+
+<div class="writer-wrap">
+  <div class="page" id="editor" contenteditable="true" spellcheck="true" data-placeholder="Začnite písať…"></div>
+</div>
+<div class="wordcount" id="wc"></div>
+
+<script src="js/storage.js"></script>
+<script src="js/writer.js"></script>
+</body>
+</html>

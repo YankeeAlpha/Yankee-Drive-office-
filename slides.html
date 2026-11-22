@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yankee Prezentácie</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar slides">
+  <a class="brand" href="index.html" title="Späť na prehľad">◀ Yankee Prezentácie</a>
+  <input class="title-input" id="title" aria-label="Názov prezentácie">
+  <span class="spacer"></span>
+  <span class="status" id="status"></span>
+  <button class="tb-btn" id="new">Nová</button>
+  <select class="tb-btn" id="export" aria-label="Exportovať">
+    <option value="">Uložiť ako…</option>
+    <option value="html">Samostatná prezentácia (.html)</option>
+    <option value="pdf">PDF / Tlač</option>
+  </select>
+  <button class="tb-btn" id="play" title="Spustiť prezentáciu (F5)">▶ Prezentovať</button>
+</header>
+
+<div class="toolbar">
+  <button id="add" title="Nová snímka">+ Snímka</button>
+  <button id="dup" title="Duplikovať snímku">⧉</button>
+  <button id="del" title="Odstrániť snímku">🗑</button>
+  <button id="up" title="Posunúť hore">↑</button>
+  <button id="down" title="Posunúť dole">↓</button>
+  <span class="sep"></span>
+  <select id="layout" title="Rozloženie">
+    <option value="layout-content">Nadpis a obsah</option>
+    <option value="layout-title">Titulná snímka</option>
+  </select>
+  <select id="theme" title="Motív">
+    <option value="theme-light">Svetlý</option>
+    <option value="theme-blue">Modrý</option>
+    <option value="theme-dark">Tmavý</option>
+    <option value="theme-green">Zelený</option>
+    <option value="theme-orange">Oranžový</option>
+  </select>
+  <span class="sep"></span>
+  <button data-cmd="bold" title="Tučné"><b>B</b></button>
+  <button data-cmd="italic" title="Kurzíva"><i>I</i></button>
+  <button data-cmd="underline" title="Podčiarknuté"><u>U</u></button>
+  <span class="lbl">A</span><input type="color" id="fore" value="#000000" title="Farba písma">
+  <button data-cmd="insertUnorderedList" title="Odrážky">• ≡</button>
+  <button data-cmd="insertOrderedList" title="Číslovanie">1. ≡</button>
+  <button data-cmd="justifyLeft" title="Vľavo">⯇</button>
+  <button data-cmd="justifyCenter" title="Na stred">≡</button>
+  <label class="btn" title="Vložiť obrázok">🖼<input type="file" id="img" accept="image/*" hidden></label>
+</div>
+
+<div class="slides-layout">
+  <aside class="slide-list" id="list"></aside>
+  <section class="stage" id="stage">
+    <div class="stage-inner">
+      <div id="slideHost"></div>
+      <div class="notes"><textarea id="notes" placeholder="Poznámky rečníka…"></textarea></div>
+    </div>
+  </section>
+</div>
+
+<script src="js/storage.js"></script>
+<script src="js/slides.js"></script>
+</body>
+</html>

@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yankee Office</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="index.html">Yankee Office</a>
+  <span class="spacer"></span>
+  <span class="status">Zadarmo · Offline · Bez registrácie</span>
+</header>
+
+<main class="home">
+  <h1>Dobrý deň!</h1>
+  <p class="lead">Bezplatný kancelársky balík pre kanceláriu a firmu. Všetko beží vo vašom prehliadači, dokumenty zostávajú u vás.</p>
+
+  <section class="new-grid">
+    <a class="new-card" href="writer.html">
+      <div class="ico writer">T</div>
+      <div><strong>Yankee Text</strong><span>Dokumenty, listy, zmluvy, faktúry</span></div>
+    </a>
+    <a class="new-card" href="sheet.html">
+      <div class="ico sheet">X</div>
+      <div><strong>Yankee Tabuľky</strong><span>Tabuľky, vzorce, rozpočty, CSV</span></div>
+    </a>
+    <a class="new-card" href="slides.html">
+      <div class="ico slides">P</div>
+      <div><strong>Yankee Prezentácie</strong><span>Snímky a prezentačný režim</span></div>
+    </a>
+  </section>
+
+  <h2 style="font-size:18px;margin:0 0 12px">Šablóny</h2>
+  <section class="new-grid" id="templates"></section>
+
+  <div class="docs-head">
+    <h2>Moje dokumenty</h2>
+    <div class="filters">
+      <input id="search" type="search" placeholder="Hľadať…">
+      <select id="filter">
+        <option value="">Všetky typy</option>
+        <option value="writer">Texty</option>
+        <option value="sheet">Tabuľky</option>
+        <option value="slides">Prezentácie</option>
+      </select>
+    </div>
+  </div>
+  <div class="doc-list" id="docs"></div>
+
+  <div class="home-actions">
+    <button class="btn" id="backup">Zálohovať všetko (.json)</button>
+    <label class="btn">Obnoviť zo zálohy<input type="file" id="restore" accept=".json" hidden></label>
+  </div>
+</main>
+<footer class="foot">Yankee Office · open-source · dokumenty sú uložené lokálne v tomto prehliadači – pravidelne si robte zálohu.</footer>
+
+<script src="js/storage.js"></script>
+<script src="js/templates.js"></script>
+<script>
+const LABEL = { writer: 'T', sheet: 'X', slides: 'P' };
+const PAGE = { writer: 'writer.html', sheet: 'sheet.html', slides: 'slides.html' };
+
+function renderDocs() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const f = document.getElementById('filter').value;
+  const list = Store.list().filter(d => (!f || d.type === f) && d.title.toLowerCase().includes(q));
+  const el = document.getElementById('docs');
+  if (!list.length) { el.innerHTML = '<div class="empty">Zatiaľ žiadne dokumenty. Vytvorte nový hore.</div>'; return; }
+  el.innerHTML = list.map(d => `
+    <div class="doc-row">
+      <div class="ico ${d.type}">${LABEL[d.type] || '?'}</div>
+      <a class="name" href="${PAGE[d.type]}?id=${d.id}">${escapeHtml(d.title)}</a>
+      <span class="date">${new Date(d.updated).toLocaleString('sk-SK')}</span>
+      <button data-dup="${d.id}" title="Duplikovať">Kópia</button>
+      <button class="del" data-del="${d.id}" title="Vymazať">Vymazať</button>
+    </div>`).join('');
+}
+
+document.getElementById('docs').addEventListener('click', e => {
+  const del = e.target.dataset.del, dup = e.target.dataset.dup;
+  if (del) {
+    const d = Store.get(del);
+    if (d && confirm(`Naozaj vymazať „${d.title}“?`)) { Store.remove(del); renderDocs(); }
+  }
+  if (dup) {
+    const d = Store.get(dup);
+    if (d) { Store.create(d.type, d.title + ' (kópia)', JSON.parse(JSON.stringify(d.content))); renderDocs(); }
+  }
+});
+document.getElementById('search').addEventListener('input', renderDocs);
+document.getElementById('filter').addEventListener('change', renderDocs);
+
+document.getElementById('backup').onclick = () =>
+  download('yankee-office-zaloha-' + new Date().toISOString().slice(0, 10) + '.json', Store.exportAll(), 'application/json');
+document.getElementById('restore').onchange = e => {
+  const file = e.target.files[0]; if (!file) return;
+  file.text().then(t => {
+    try { alert('Obnovených dokumentov: ' + Store.importAll(t)); renderDocs(); }
+    catch (err) { alert('Neplatný súbor zálohy.'); }
+  });
+  e.target.value = '';
+};
+
+document.getElementById('templates').innerHTML = TEMPLATES.map((t, i) => `
+  <div class="new-card" data-tpl="${i}">
+    <div class="ico ${t.type}">${LABEL[t.type]}</div>
+    <div><strong>${escapeHtml(t.name)}</strong><span>${escapeHtml(t.desc)}</span></div>
+  </div>`).join('');
+document.getElementById('templates').addEventListener('click', e => {
+  const card = e.target.closest('[data-tpl]'); if (!card) return;
+  const t = TEMPLATES[+card.dataset.tpl];
+  const doc = Store.create(t.type, t.name, JSON.parse(JSON.stringify(t.content)));
+  location.href = PAGE[t.type] + '?id=' + doc.id;
+});
+
+renderDocs();
+</script>
+</body>
+</html>
