@@ -108,23 +108,11 @@
     autosave.saveNow();
     location.href = 'writer.html';
   };
-  document.getElementById('open').onchange = e => {
-    const f = e.target.files[0]; if (!f) return;
-    f.text().then(t => {
-      const nd = Store.create('writer', f.name.replace(/\.[^.]+$/, ''), '');
-      if (/\.txt$/i.test(f.name)) {
-        nd.content = t.split(/\r?\n/).map(l => '<p>' + (escapeHtml(l) || '<br>') + '</p>').join('');
-      } else {
-        const m = t.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-        const tmp = document.createElement('div');
-        tmp.innerHTML = m ? m[1] : t;
-        tmp.querySelectorAll('script,style,iframe,object,embed').forEach(n => n.remove());
-        tmp.querySelectorAll('*').forEach(n => [...n.attributes].forEach(a => { if (/^on/i.test(a.name)) n.removeAttribute(a.name); }));
-        nd.content = tmp.innerHTML;
-      }
-      Store.save(nd);
-      location.href = 'writer.html?id=' + nd.id;
-    });
+  document.getElementById('open').onchange = async e => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    autosave.saveNow();
+    try { const nd = await importFile(f, f.name); location.href = PAGE_FOR[nd.type] + '?id=' + nd.id; }
+    catch (err) { alert(err.message); }
   };
 
   // Export
@@ -134,17 +122,22 @@
 table{border-collapse:collapse;width:100%}td,th{border:1px solid #999;padding:4px 8px}</style></head>
 <body>${editor.innerHTML}</body></html>`;
   }
-  document.getElementById('export').onchange = e => {
+  const makeDocx = async () => ({ blob: await Docx.fromHtml(editor.innerHTML, doc.title), name: safeName(doc.title) + '.docx', mimeType: MIME.docx });
+  document.getElementById('export').onchange = async e => {
     const v = e.target.value; e.target.value = '';
     const name = safeName(doc.title);
-    if (v === 'doc') {
-      const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">` +
-        fullHtml().replace(/^<!doctype html><html>/i, '');
-      download(name + '.doc', '﻿' + html, 'application/msword');
-    } else if (v === 'html') download(name + '.html', fullHtml(), 'text/html;charset=utf-8');
-    else if (v === 'txt') download(name + '.txt', editor.innerText, 'text/plain;charset=utf-8');
-    else if (v === 'pdf') window.print();
+    try {
+      if (v === 'docx') download(name + '.docx', (await makeDocx()).blob);
+      else if (v === 'html') download(name + '.html', fullHtml(), 'text/html;charset=utf-8');
+      else if (v === 'txt') download(name + '.txt', editor.innerText, 'text/plain;charset=utf-8');
+      else if (v === 'pdf') window.print();
+    } catch (err) { alert('Export zlyhal: ' + err.message); }
   };
+
+  DriveUI.menu(document.getElementById('driveSlot'), doc, {
+    statusEl: document.getElementById('status'),
+    saves: [{ label: 'Uložiť na Drive (.docx)', make: () => { autosave.saveNow(); return makeDocx(); } }]
+  });
 
   updateCount();
   editor.focus();

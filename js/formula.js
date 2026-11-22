@@ -21,6 +21,13 @@ const Formula = (() => {
       }
       const num = /^\d+(\.\d+)?([eE][+-]?\d+)?/.exec(src.slice(i));
       if (num) { t.push({ k: 'num', v: parseFloat(num[0]) }); i += num[0].length; continue; }
+      const sref = /^(?:'((?:[^']|'')+)'|([\p{L}_][\p{L}0-9_.]*))!(\$?[A-Za-z]+\$?\d+)(?::(\$?[A-Za-z]+\$?\d+))?/u.exec(src.slice(i));
+      if (sref) {
+        const sheet = (sref[1] ? sref[1].replace(/''/g, "'") : sref[2]);
+        const a = sref[3].toUpperCase().replace(/\$/g, ''), b = sref[4] && sref[4].toUpperCase().replace(/\$/g, '');
+        t.push(b ? { k: 'range', a, b, sheet } : { k: 'ref', v: a, sheet });
+        i += sref[0].length; continue;
+      }
       const id = /^\$?[\p{L}_][\p{L}0-9_.]*\$?\d*/u.exec(src.slice(i));
       if (id) {
         let w = id[0]; i += w.length;
@@ -66,8 +73,8 @@ const Formula = (() => {
       if (!tok) throw ERR.val;
       if (tok.k === 'num') return { k: 'num', v: tok.v };
       if (tok.k === 'str') return { k: 'str', v: tok.v };
-      if (tok.k === 'ref') return { k: 'ref', v: tok.v };
-      if (tok.k === 'range') return { k: 'range', a: tok.a, b: tok.b };
+      if (tok.k === 'ref') return { k: 'ref', v: tok.v, sheet: tok.sheet };
+      if (tok.k === 'range') return { k: 'range', a: tok.a, b: tok.b, sheet: tok.sheet };
       if (tok.k === 'id') {
         if (tok.v === 'TRUE' || tok.v === 'PRAVDA') return { k: 'bool', v: true };
         if (tok.v === 'FALSE' || tok.v === 'NEPRAVDA') return { k: 'bool', v: false };
@@ -164,13 +171,13 @@ const Formula = (() => {
   function evaluate(ast, getCell) {
     switch (ast.k) {
       case 'num': case 'str': case 'bool': return ast.v;
-      case 'ref': { const v = getCell(ast.v); return v === '' ? 0 : v; }
+      case 'ref': { const v = getCell(ast.v, ast.sheet); return v === '' ? 0 : v; }
       case 'range': {
         const a = parseRef(ast.a), b = parseRef(ast.b);
         const rows = [];
         for (let r = Math.min(a.r, b.r); r <= Math.max(a.r, b.r); r++) {
           const row = [];
-          for (let c = Math.min(a.c, b.c); c <= Math.max(a.c, b.c); c++) row.push(getCell(makeRef(c, r)));
+          for (let c = Math.min(a.c, b.c); c <= Math.max(a.c, b.c); c++) row.push(getCell(makeRef(c, r), ast.sheet));
           rows.push(row);
         }
         return rows;
@@ -221,27 +228,45 @@ const Formula = (() => {
     return cache.get(src);
   }
 
-  /* Prepočíta celý hárok: cells = { A1: 'raw' } -> { A1: hodnota } */
-  function computeAll(cells) {
-    const values = {}, visiting = new Set();
-    function getCell(ref) {
+  /* Prepočíta celý zošit: sheets = [{ name, cells: { A1: 'raw' } }] -> [{ A1: hodnota }, ...] */
+  function computeWorkbook(sheets) {
+    const all = sheets.map(() => ({})), visiting = new Set();
+    const byName = {};
+    sheets.forEach((s, i) => { byName[String(s.name).toLowerCase()] = i; });
+    function getIn(si, ref) {
+      const values = all[si];
       if (ref in values) return values[ref];
-      const raw = cells[ref];
+      const raw = sheets[si].cells[ref];
       if (raw == null || raw === '') return '';
-      if (visiting.has(ref)) throw ERR.cyc;
+      const key = si + '!' + ref;
+      if (visiting.has(key)) throw ERR.cyc;
       let v;
       if (typeof raw === 'string' && raw[0] === '=') {
-        visiting.add(ref);
+        visiting.add(key);
         const ast = compile(raw.slice(1));
+        const getCell = (r, sheet) => {
+          if (sheet === undefined) return getIn(si, r);
+          const j = byName[sheet.toLowerCase()];
+          if (j === undefined) throw ERR.ref;
+          return getIn(j, r);
+        };
         try { v = isErr(ast) ? ast : evaluate(ast, getCell); if (Array.isArray(v)) v = v[0][0]; }
         catch (e) { v = isErr(e) ? e : ERR.val; }
-        visiting.delete(ref);
+        visiting.delete(key);
       } else v = literal(raw);
       values[ref] = v;
       return v;
     }
-    for (const ref of Object.keys(cells)) getCell(ref);
-    return values;
+    sheets.forEach((s, si) => { for (const ref of Object.keys(s.cells)) getIn(si, ref); });
+    return all;
+  }
+  const computeAll = cells => computeWorkbook([{ name: '_', cells }])[0];
+
+  /* Preklad vzorca do tvaru pre Excel (anglické názvy, čiarka ako oddeľovač) */
+  const SK_EN = { 'SÚČET': 'SUM', 'PRIEMER': 'AVERAGE', 'KEĎ': 'IF', 'POČET': 'COUNT', 'ZAOKRÚHLIŤ': 'ROUND' };
+  function toExcel(formula) {
+    return formula.split('"').map((part, i) => i % 2 ? part :
+      part.replace(/;/g, ',').replace(/[\p{L}]+(?=\()/gu, w => SK_EN[w.toUpperCase()] || w.toUpperCase())).join('"');
   }
 
   function literal(raw) {
@@ -251,7 +276,7 @@ const Formula = (() => {
     return raw;
   }
 
-  return { computeAll, colToNum, numToCol, parseRef, makeRef, isErr, functions: Object.keys(FN) };
+  return { computeAll, computeWorkbook, toExcel, colToNum, numToCol, parseRef, makeRef, isErr, functions: Object.keys(FN) };
 })();
 
 if (typeof module !== 'undefined') module.exports = Formula;

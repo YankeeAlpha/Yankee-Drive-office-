@@ -5,17 +5,29 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Yankee Office</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#2457d6">
 </head>
 <body>
 <header class="topbar">
   <a class="brand" href="index.html">Yankee Office</a>
   <span class="spacer"></span>
   <span class="status">Zadarmo · Offline · Bez registrácie</span>
+  <button class="tb-btn" id="install" hidden>⬇ Nainštalovať</button>
+  <button class="tb-btn" id="getZip">💻 Stiahnuť do PC</button>
 </header>
 
 <main class="home">
   <h1>Dobrý deň!</h1>
   <p class="lead">Bezplatný kancelársky balík pre kanceláriu a firmu. Všetko beží vo vašom prehliadači, dokumenty zostávajú u vás.</p>
+
+  <div class="home-actions" style="margin:-8px 0 20px">
+    <label class="btn primary">📂 Otvoriť súbor z počítača<input type="file" id="openLocal" accept=".docx,.xlsx,.xlsm,.xls,.ods,.csv,.tsv,.txt,.md,.html,.htm,.json" hidden></label>
+    <button class="btn" id="openDrive">☁ Otvoriť z Google Drive</button>
+    <button class="btn" id="driveCfg">⚙ Nastaviť Google Drive</button>
+  </div>
+  <p style="margin:-10px 0 20px;color:var(--muted);font-size:13px">Podporované: Word .docx, Excel .xlsx / .xls, OpenDocument .ods, CSV, text, HTML. Ukladanie do .docx, .xlsx, .pptx, PDF.</p>
 
   <section class="new-grid">
     <a class="new-card" href="writer.html">
@@ -56,7 +68,12 @@
 </main>
 <footer class="foot">Yankee Office · open-source · dokumenty sú uložené lokálne v tomto prehliadači – pravidelne si robte zálohu.</footer>
 
+<script src="js/files.js"></script>
 <script src="js/storage.js"></script>
+<script src="js/formula.js"></script>
+<script src="js/docx.js"></script>
+<script src="js/xlsxio.js"></script>
+<script src="js/gdrive.js"></script>
 <script src="js/templates.js"></script>
 <script>
 const LABEL = { writer: 'T', sheet: 'X', slides: 'P' };
@@ -114,6 +131,68 @@ document.getElementById('templates').addEventListener('click', e => {
   const doc = Store.create(t.type, t.name, JSON.parse(JSON.stringify(t.content)));
   location.href = PAGE[t.type] + '?id=' + doc.id;
 });
+
+/* ---------- Otváranie súborov ---------- */
+async function openBlob(blob, name) {
+  try { const d = await importFile(blob, name); location.href = PAGE_FOR[d.type] + '?id=' + d.id; }
+  catch (err) { alert(err.message); }
+}
+document.getElementById('openLocal').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) openBlob(f, f.name); };
+document.getElementById('openDrive').onclick = () => DriveUI.openFromDrive();
+document.getElementById('driveCfg').onclick = () => DriveUI.settings();
+// Pretiahnutie súboru na stránku
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) openBlob(f, f.name); });
+// Otvorenie súboru z operačného systému (nainštalovaná aplikácia, „Otvoriť pomocou")
+if ('launchQueue' in window) launchQueue.setConsumer(async p => { if (p.files && p.files[0]) { const f = await p.files[0].getFile(); openBlob(f, f.name); } });
+
+/* ---------- Inštalácia ako aplikácia (PWA) ---------- */
+let installEvt = null;
+const installBtn = document.getElementById('install');
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; installBtn.hidden = false; });
+installBtn.onclick = async () => { if (!installEvt) return; installEvt.prompt(); await installEvt.userChoice; installEvt = null; installBtn.hidden = true; };
+addEventListener('appinstalled', () => toast('Yankee Office je nainštalovaný – nájdete ho medzi aplikáciami.'));
+
+/* ---------- Stiahnuť do PC ---------- */
+document.getElementById('getZip').onclick = () => {
+  const local = location.protocol === 'file:';
+  const d = DriveUI.dialog('Stiahnuť Yankee Office do počítača', `
+    ${local ? '<p><b>Yankee Office už beží z vášho počítača.</b> Na spustenie použite spúšťač v priečinku aplikácie (pozri nižšie).</p>' : ''}
+    <p>Stiahnete celý balík ako ZIP. Funguje bez internetu a dokumenty zostávajú vo vašom počítači.</p>
+    <ol>
+      <li>Rozbaľte ZIP napríklad do priečinka <b>Dokumenty</b>.</li>
+      <li>Spustite:
+        <ul>
+          <li><b>Windows:</b> dvojklik na <code>Spustit-Windows.bat</code></li>
+          <li><b>Mac:</b> dvojklik na <code>Spustit-Mac.command</code> (prvýkrát pravý klik → Otvoriť)</li>
+          <li><b>Linux:</b> <code>./spustit-linux.sh</code></li>
+        </ul>
+      </li>
+      <li>Otvorí sa prehliadač s adresou <code>http://localhost:8765</code>. V Chrome alebo Edge kliknite na <b>⬇ Nainštalovať</b> a Yankee Office bude mať vlastnú ikonu a okno ako bežný program.</li>
+    </ol>
+    <p>Bez spúšťača stačí otvoriť <code>index.html</code> (odporúčame Chrome alebo Edge). Google Drive a inštalácia ako aplikácia však fungujú len cez spúšťač.</p>
+    <p><b>Dôležité:</b> dokumenty sa ukladajú v prehliadači podľa adresy, z ktorej Yankee Office otvárate. Dokumenty z tejto webovej verzie sa do stiahnutej verzie neprenesú samé – presuňte ich cez <b>Zálohovať všetko</b> a v stiahnutej verzii <b>Obnoviť zo zálohy</b>.</p>
+  `, local ? [{ label: 'Zavrieť', onClick: dlg => dlg.close() }] : [
+    { label: 'Zálohovať dokumenty', onClick: () => document.getElementById('backup').click() },
+    { label: 'Stiahnuť ZIP', primary: true, onClick: async dlg => {
+      const btn = dlg.querySelector('footer .primary');
+      btn.disabled = true; btn.textContent = 'Pripravujem…';
+      try {
+        await loadScript('vendor/jszip.min.js');
+        const zip = new JSZip(), dir = zip.folder('Yankee-Office');
+        for (const f of APP_FILES.concat(DOWNLOAD_EXTRA)) {
+          const r = await fetch(f, { cache: 'no-store' });
+          if (!r.ok) throw new Error('Chýba súbor ' + f);
+          const exec = /\.(command|sh)$/.test(f);
+          dir.file(f, await r.blob(), exec ? { unixPermissions: 0o100755 } : {});
+        }
+        const blob = await zip.generateAsync({ type: 'blob', platform: 'UNIX', compression: 'DEFLATE' });
+        download('Yankee-Office-' + APP_VERSION + '.zip', blob);
+        dlg.close();
+      } catch (err) { alert('Nepodarilo sa pripraviť ZIP: ' + err.message); btn.disabled = false; btn.textContent = 'Stiahnuť ZIP'; }
+    } }
+  ]);
+};
 
 renderDocs();
 </script>

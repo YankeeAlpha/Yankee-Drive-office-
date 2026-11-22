@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Yankee Text</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#2457d6">
 </head>
 <body>
 <header class="topbar writer">
@@ -12,11 +15,12 @@
   <input class="title-input" id="title" aria-label="Názov dokumentu">
   <span class="spacer"></span>
   <span class="status" id="status"></span>
+  <span id="driveSlot" style="display:contents"></span>
   <button class="tb-btn" id="new">Nový</button>
-  <label class="tb-btn">Otvoriť<input type="file" id="open" accept=".html,.htm,.txt,.doc" hidden></label>
-  <select class="tb-btn" id="export" aria-label="Exportovať">
-    <option value="">Uložiť ako…</option>
-    <option value="doc">Word (.doc)</option>
+  <label class="tb-btn">Otvoriť<input type="file" id="open" accept=".docx,.html,.htm,.txt,.md" hidden></label>
+  <select class="tb-btn" id="export" aria-label="Stiahnuť">
+    <option value="">Stiahnuť ako…</option>
+    <option value="docx">Word (.docx)</option>
     <option value="html">Webová stránka (.html)</option>
     <option value="txt">Čistý text (.txt)</option>
     <option value="pdf">PDF / Tlač</option>
@@ -81,6 +85,10 @@
 <div class="wordcount" id="wc"></div>
 
 <script src="js/storage.js"></script>
+<script src="js/formula.js"></script>
+<script src="js/docx.js"></script>
+<script src="js/xlsxio.js"></script>
+<script src="js/gdrive.js"></script>
 <script src="js/writer.js"></script>
 </body>
 </html>

@@ -1,11 +1,12 @@
 /* Yankee Tabuľky – tabuľkový procesor */
 (() => {
-  const ROWS = 200, COLS = 26;
-  const { numToCol, makeRef, parseRef, computeAll, isErr } = Formula;
+  let ROWS = 200, COLS = 26;
+  const MAX_ROWS = 5000, MAX_COLS = 104;
+  const { numToCol, makeRef, parseRef, computeWorkbook, isErr } = Formula;
 
   const doc = openOrCreate('sheet', 'Nový zošit', null);
   if (!doc.content || !Array.isArray(doc.content.sheets)) doc.content = { sheets: [{ name: 'Hárok1', cells: {}, styles: {} }] };
-  doc.content.sheets.forEach(s => { s.cells ||= {}; s.styles ||= {}; });
+  doc.content.sheets.forEach(s => { s.cells ||= {}; s.styles ||= {}; s.charts ||= []; });
   let active = 0;
   const sheet = () => doc.content.sheets[active];
 
@@ -16,13 +17,23 @@
   const fbar = document.getElementById('fbar');
   const cellName = document.getElementById('cellName');
   const tabsEl = document.getElementById('tabs');
-  let values = {};
+  let values = {}, allValues = [];
+  let rendered = new Set();
   let anchor = { c: 0, r: 0 }, cur = { c: 0, r: 0 };
   let editing = null; // { c, r, input }
   let undoStack = [], redoStack = [];
 
   /* ---------- Mriežka ---------- */
-  function buildGrid() {
+  function fitSize() {
+    let mr = 0, mc = 0;
+    for (const ref of Object.keys(sheet().cells).concat(Object.keys(sheet().styles))) { const p = parseRef(ref); if (p) { mr = Math.max(mr, p.r); mc = Math.max(mc, p.c); } }
+    ROWS = Math.min(MAX_ROWS, Math.max(200, mr + 51));
+    COLS = Math.min(MAX_COLS, Math.max(26, mc + 3));
+  }
+  function buildGrid(minRows = 0) {
+    fitSize();
+    ROWS = Math.min(MAX_ROWS, Math.max(ROWS, minRows));
+    rendered = new Set();
     let html = '<thead><tr><th class="corner"></th>';
     for (let c = 0; c < COLS; c++) html += `<th data-col="${c}">${numToCol(c)}</th>`;
     html += '</tr></thead><tbody>';
@@ -49,10 +60,13 @@
   }
 
   function renderValues() {
-    values = computeAll(sheet().cells);
+    allValues = computeWorkbook(doc.content.sheets);
+    values = allValues[active];
     const styles = sheet().styles;
-    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
-      const ref = makeRef(c, r), cell = td(c, r);
+    const now = new Set([...Object.keys(values), ...Object.keys(styles)]);
+    for (const ref of new Set([...now, ...rendered])) {
+      const p = parseRef(ref); if (!p || p.r >= ROWS || p.c >= COLS) continue;
+      const { c, r } = p, cell = td(c, r);
       if (editing && editing.c === c && editing.r === r) continue;
       const v = values[ref], st = styles[ref];
       const txt = v === undefined ? '' : format(v, st);
@@ -62,8 +76,10 @@
       s.fontWeight = st?.b ? '700' : ''; s.fontStyle = st?.i ? 'italic' : ''; s.textDecoration = st?.u ? 'underline' : '';
       s.color = st?.color || ''; s.background = st?.fill || ''; s.textAlign = st?.a || '';
     }
+    rendered = now;
     renderSelection();
     updateStats();
+    renderCharts();
   }
 
   function selRect() {
@@ -103,19 +119,23 @@
 
   /* ---------- Úpravy ---------- */
   function snapshot() {
-    undoStack.push(JSON.stringify({ active, cells: sheet().cells, styles: sheet().styles }));
+    undoStack.push(JSON.stringify({ active, cells: sheet().cells, styles: sheet().styles, charts: sheet().charts }));
     if (undoStack.length > 100) undoStack.shift();
     redoStack = [];
   }
   function restore(from, to) {
     if (!from.length) return;
-    to.push(JSON.stringify({ active, cells: sheet().cells, styles: sheet().styles }));
+    to.push(JSON.stringify({ active, cells: sheet().cells, styles: sheet().styles, charts: sheet().charts }));
     const s = JSON.parse(from.pop());
     if (s.active !== active && doc.content.sheets[s.active]) { active = s.active; renderTabs(); }
-    sheet().cells = s.cells; sheet().styles = s.styles;
+    sheet().cells = s.cells; sheet().styles = s.styles; sheet().charts = s.charts || [];
+    buildGrid();
     commit(false);
   }
-  function commit(snap = true) { renderValues(); autosave.schedule(); }
+  function commit() {
+    for (const ref of Object.keys(sheet().cells)) { const p = parseRef(ref); if (p && (p.r >= ROWS || p.c >= COLS)) { buildGrid(); break; } }
+    renderValues(); autosave.schedule();
+  }
 
   function setCell(ref, raw) {
     const cells = sheet().cells;
@@ -147,6 +167,7 @@
   }
 
   function move(dc, dr, extend) {
+    if (cur.r + dr >= ROWS && ROWS < MAX_ROWS) { buildGrid(ROWS + 100); renderValues(); }
     cur = { c: Math.max(0, Math.min(COLS - 1, cur.c + dc)), r: Math.max(0, Math.min(ROWS - 1, cur.r + dr)) };
     if (!extend) anchor = { ...cur };
     renderSelection(); updateStats(); scrollIntoView(cur.c, cur.r);
@@ -240,7 +261,7 @@
     text.replace(/\r/g, '').replace(/\n$/, '').split('\n').forEach((line, dr) =>
       line.split('\t').forEach((val, dc) => {
         const c = cur.c + dc, r = cur.r + dr;
-        if (c < COLS && r < ROWS) setCell(makeRef(c, r), val);
+        if (c < MAX_COLS && r < MAX_ROWS) setCell(makeRef(c, r), val);
       }));
     commit();
   });
@@ -329,99 +350,145 @@
       (doc.content.sheets.length > 1 ? '<button id="delSheet" title="Odstrániť aktuálny hárok">−</button>' : '') +
       '<span class="stats" id="stats"></span>';
   }
+  function switchSheet(i) {
+    if (editing) finishEdit(true);
+    active = i; anchor = { c: 0, r: 0 }; cur = { c: 0, r: 0 }; undoStack = []; redoStack = [];
+    buildGrid(); renderTabs(); renderValues();
+  }
   tabsEl.addEventListener('click', e => {
-    if (e.target.dataset.tab !== undefined) {
-      if (editing) finishEdit(true);
-      active = +e.target.dataset.tab; anchor = cur = { c: 0, r: 0 }; undoStack = []; redoStack = [];
-      renderTabs(); renderValues();
-    } else if (e.target.id === 'addSheet') {
-      doc.content.sheets.push({ name: 'Hárok' + (doc.content.sheets.length + 1), cells: {}, styles: {} });
-      active = doc.content.sheets.length - 1; undoStack = []; redoStack = [];
-      renderTabs(); renderValues(); autosave.schedule();
+    if (e.target.dataset.tab !== undefined) switchSheet(+e.target.dataset.tab);
+    else if (e.target.id === 'addSheet') {
+      let n = doc.content.sheets.length + 1;
+      while (doc.content.sheets.some(s => s.name === 'Hárok' + n)) n++;
+      doc.content.sheets.push({ name: 'Hárok' + n, cells: {}, styles: {}, charts: [] });
+      switchSheet(doc.content.sheets.length - 1); autosave.schedule();
     } else if (e.target.id === 'delSheet') {
       if (!confirm(`Odstrániť hárok „${sheet().name}“?`)) return;
-      doc.content.sheets.splice(active, 1); active = Math.max(0, active - 1); undoStack = []; redoStack = [];
-      renderTabs(); renderValues(); autosave.schedule();
+      doc.content.sheets.splice(active, 1); switchSheet(Math.max(0, active - 1)); autosave.schedule();
     }
   });
   tabsEl.addEventListener('dblclick', e => {
     if (e.target.dataset.tab === undefined) return;
     const s = doc.content.sheets[+e.target.dataset.tab];
     const name = prompt('Nový názov hárka:', s.name);
-    if (name) { s.name = name.trim().slice(0, 40); renderTabs(); updateStats(); autosave.schedule(); }
+    if (name && name.trim()) { s.name = name.trim().slice(0, 40); renderTabs(); renderValues(); autosave.schedule(); }
   });
 
-  /* ---------- CSV / Export ---------- */
-  function parseCSV(text) {
-    const delim = (text.split('\n')[0].match(/;/g) || []).length > (text.split('\n')[0].match(/,/g) || []).length ? ';'
-      : text.includes('\t') ? '\t' : ',';
-    const rows = []; let row = [], field = '', q = false;
-    for (let i = 0; i < text.length; i++) {
-      const ch = text[i];
-      if (q) {
-        if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
-        else field += ch;
-      } else if (ch === '"') q = true;
-      else if (ch === delim) { row.push(field); field = ''; }
-      else if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
-      else if (ch !== '\r') field += ch;
-    }
-    if (field || row.length) { row.push(field); rows.push(row); }
-    return rows;
-  }
-  document.getElementById('open').onchange = e => {
-    const f = e.target.files[0]; if (!f) return;
-    f.text().then(t => {
-      const cells = {};
-      parseCSV(t.replace(/^﻿/, '')).forEach((row, r) => row.forEach((v, c) => { if (v !== '' && r < ROWS && c < COLS) cells[makeRef(c, r)] = v; }));
-      const nd = Store.create('sheet', f.name.replace(/\.[^.]+$/, ''), { sheets: [{ name: 'Hárok1', cells, styles: {} }] });
-      location.href = 'sheet.html?id=' + nd.id;
+  /* ---------- Grafy ---------- */
+  const gridWrap = document.getElementById('gridWrap');
+  function renderCharts() {
+    gridWrap.querySelectorAll('.chart-box').forEach(e => e.remove());
+    sheet().charts.forEach((ch, i) => {
+      const box = document.createElement('div');
+      box.className = 'chart-box';
+      box.style.left = (ch.x ?? 60) + 'px'; box.style.top = (ch.y ?? 40) + 'px';
+      box.innerHTML = `<div class="ch-head"><strong>${escapeHtml(ch.title || Charts.TYPES[ch.type])}</strong>
+        <button data-act="edit" title="Upraviť graf">✎</button><button data-act="png" title="Stiahnuť ako obrázok PNG">⤓</button><button data-act="del" title="Odstrániť graf">✕</button></div><div class="ch-body"></div>`;
+      const { svg, marks } = Charts.render(ch, values);
+      box.querySelector('.ch-body').innerHTML = svg;
+      Charts.attachHover(box.querySelector('.ch-body'), marks);
+      box.querySelector('[data-act=edit]').onclick = () => chartDialog(i);
+      box.querySelector('[data-act=del]').onclick = () => { if (confirm('Odstrániť graf?')) { snapshot(); sheet().charts.splice(i, 1); commit(); } };
+      box.querySelector('[data-act=png]').onclick = async () => download(safeName(ch.title || 'graf') + '.png', await Charts.toPng(svg, ch.title));
+      const head = box.querySelector('.ch-head');
+      head.addEventListener('mousedown', e => {
+        if (e.target.closest('button')) return;
+        e.preventDefault();
+        const sx = e.clientX, sy = e.clientY, ox = ch.x ?? 60, oy = ch.y ?? 40;
+        const mv = ev => { ch.x = Math.max(0, ox + ev.clientX - sx); ch.y = Math.max(0, oy + ev.clientY - sy); box.style.left = ch.x + 'px'; box.style.top = ch.y + 'px'; };
+        const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); autosave.schedule(); };
+        document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+      });
+      gridWrap.appendChild(box);
     });
-    e.target.value = '';
+  }
+  function chartDialog(index) {
+    const s = selRect();
+    const existing = index !== undefined ? sheet().charts[index] : null;
+    const range = existing ? existing.range : (s.c1 === s.c2 && s.r1 === s.r2 ? guessRange() : `${makeRef(s.c1, s.r1)}:${makeRef(s.c2, s.r2)}`);
+    const d = DriveUI.dialog(existing ? 'Upraviť graf' : 'Vložiť graf', `
+      <p>Prvý stĺpec s textom sa použije ako kategórie (os X), prvý riadok s textom ako názvy radov. Každý ďalší stĺpec je jeden rad (max. 8).</p>
+      <label for="chType">Typ grafu</label>
+      <select id="chType">${Object.entries(Charts.TYPES).map(([k, v]) => `<option value="${k}" ${existing?.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+      <label for="chRange">Rozsah údajov</label>
+      <input type="text" id="chRange" value="${escapeHtml(range)}" placeholder="napr. A1:C6">
+      <label for="chTitle">Nadpis</label>
+      <input type="text" id="chTitle" value="${escapeHtml(existing?.title ?? '')}" placeholder="Nadpis grafu">
+    `, [
+      { label: 'Zrušiť', onClick: dlg => dlg.close() },
+      { label: existing ? 'Uložiť' : 'Vložiť', primary: true, onClick: dlg => {
+        const type = dlg.querySelector('#chType').value, rng = dlg.querySelector('#chRange').value.trim().toUpperCase().replace(/\$/g, '');
+        if (!/^[A-Z]+\d+(:[A-Z]+\d+)?$/.test(rng)) { alert('Zadajte rozsah v tvare A1:C6'); return; }
+        const title = dlg.querySelector('#chTitle').value.trim();
+        snapshot();
+        if (existing) Object.assign(existing, { type, range: rng, title });
+        else {
+          const [, b] = rng.split(':'); const p = parseRef(b || rng), a = parseRef(rng.split(':')[0]);
+          let maxC = p.c;
+          for (const ref of Object.keys(sheet().cells)) { const q = parseRef(ref); if (q) maxC = Math.max(maxC, q.c); }
+          const anchorTd = td(Math.min(COLS - 1, maxC + 1), Math.min(a.r, p.r));
+          sheet().charts.push({ id: Date.now().toString(36), type, range: rng, title, x: anchorTd.offsetLeft + 12, y: anchorTd.offsetTop });
+        }
+        dlg.close(); commit();
+      } }
+    ]);
+    d.querySelector('#chTitle').focus();
+  }
+  // Ak je vybraná jedna bunka, nájdeme súvislú oblasť dát okolo nej
+  function guessRange() {
+    const has = (c, r) => sheet().cells[makeRef(c, r)] !== undefined;
+    let c1 = cur.c, c2 = cur.c, r1 = cur.r, r2 = cur.r, grown = true;
+    while (grown) {
+      grown = false;
+      if (c1 > 0 && [...Array(r2 - r1 + 1)].some((_, k) => has(c1 - 1, r1 + k))) { c1--; grown = true; }
+      if (c2 < COLS - 1 && [...Array(r2 - r1 + 1)].some((_, k) => has(c2 + 1, r1 + k))) { c2++; grown = true; }
+      if (r1 > 0 && [...Array(c2 - c1 + 1)].some((_, k) => has(c1 + k, r1 - 1))) { r1--; grown = true; }
+      if (r2 < ROWS - 1 && [...Array(c2 - c1 + 1)].some((_, k) => has(c1 + k, r2 + 1))) { r2++; grown = true; }
+    }
+    return `${makeRef(c1, r1)}:${makeRef(c2, r2)}`;
+  }
+  document.getElementById('chart').onclick = () => chartDialog();
+
+  /* ---------- Súbory ---------- */
+  document.getElementById('open').onchange = async e => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    try { const nd = await importFile(f, f.name); location.href = PAGE_FOR[nd.type] + '?id=' + nd.id; }
+    catch (err) { alert(err.message); }
   };
 
-  function usedBounds() {
+  function csvText() {
     let mr = -1, mc = -1;
     for (const ref of Object.keys(sheet().cells)) { const p = parseRef(ref); if (p) { mr = Math.max(mr, p.r); mc = Math.max(mc, p.c); } }
-    return { mr, mc };
+    const lines = [];
+    for (let r = 0; r <= mr; r++) {
+      const row = [];
+      for (let c = 0; c <= mc; c++) {
+        let val = values[makeRef(c, r)];
+        val = val === undefined ? '' : typeof val === 'number' ? String(val).replace('.', ',') : String(val);
+        row.push(/[;"\n]/.test(val) ? '"' + val.replace(/"/g, '""') + '"' : val);
+      }
+      lines.push(row.join(';'));
+    }
+    return '﻿' + lines.join('\r\n');
   }
-  document.getElementById('export').onchange = e => {
+  const chartNote = () => { if (doc.content.sheets.some(s => s.charts.length)) toast('Pozn.: grafy sa do .xlsx neprenášajú – stiahnite si ich cez ⤓ ako obrázok.', 6000); };
+  const makeXlsx = async () => ({ blob: await XlsxIO.write(doc.content, 'xlsx'), name: safeName(doc.title) + '.xlsx', mimeType: MIME.xlsx });
+
+  document.getElementById('export').onchange = async e => {
     const v = e.target.value; e.target.value = '';
     const name = safeName(doc.title);
-    const { mr, mc } = usedBounds();
-    if (v === 'csv') {
-      const lines = [];
-      for (let r = 0; r <= mr; r++) {
-        const row = [];
-        for (let c = 0; c <= mc; c++) {
-          let val = values[makeRef(c, r)]; val = val === undefined ? '' : isErr(val) ? String(val) : String(val);
-          row.push(/[;"\n]/.test(val) ? '"' + val.replace(/"/g, '""') + '"' : val);
-        }
-        lines.push(row.join(';'));
-      }
-      download(name + '.csv', '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
-    } else if (v === 'xls') {
-      let html = '';
-      for (const s of doc.content.sheets) {
-        const vals = computeAll(s.cells);
-        let rmax = -1, cmax = -1;
-        for (const ref of Object.keys(s.cells)) { const p = parseRef(ref); if (p) { rmax = Math.max(rmax, p.r); cmax = Math.max(cmax, p.c); } }
-        html += `<table border="1"><caption>${escapeHtml(s.name)}</caption>`;
-        for (let r = 0; r <= rmax; r++) {
-          html += '<tr>';
-          for (let c = 0; c <= cmax; c++) {
-            const ref = makeRef(c, r), st = s.styles[ref] || {}, val = vals[ref];
-            const css = (st.b ? 'font-weight:bold;' : '') + (st.i ? 'font-style:italic;' : '') + (st.color ? `color:${st.color};` : '') + (st.fill ? `background:${st.fill};` : '') + (st.a ? `text-align:${st.a};` : '');
-            html += `<td style="${css}">${val === undefined ? '' : escapeHtml(typeof val === 'number' ? String(val) : format(val, st))}</td>`;
-          }
-          html += '</tr>';
-        }
-        html += '</table><br>';
-      }
-      const out = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body>${html}</body></html>`;
-      download(name + '.xls', '﻿' + out, 'application/vnd.ms-excel');
-    } else if (v === 'pdf') window.print();
+    try {
+      if (v === 'csv') download(name + '.csv', csvText(), 'text/csv;charset=utf-8');
+      else if (v === 'xlsx') { download(name + '.xlsx', (await makeXlsx()).blob); chartNote(); }
+      else if (v === 'ods') { download(name + '.ods', await XlsxIO.write(doc.content, 'ods')); chartNote(); }
+      else if (v === 'pdf') window.print();
+    } catch (err) { alert('Export zlyhal: ' + err.message); }
   };
+
+  DriveUI.menu(document.getElementById('driveSlot'), doc, {
+    statusEl: document.getElementById('status'),
+    saves: [{ label: 'Uložiť na Drive (.xlsx)', make: async () => { chartNote(); return makeXlsx(); } }]
+  });
 
   document.getElementById('new').onclick = () => { autosave.saveNow(); location.href = 'sheet.html'; };
 

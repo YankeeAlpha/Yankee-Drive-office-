@@ -158,11 +158,46 @@
   });
 
   /* ---------- Export ---------- */
+  /* CSS pre exporty – pri otvorení zo súboru (file://) fetch nefunguje, preto záložná kópia */
+  const SLIDE_CSS = `.slide{width:960px;height:540px;position:relative;background:#fff;overflow:hidden;font-family:"Segoe UI",Arial,sans-serif;color:#222;flex:none}
+.slide .s-title{position:absolute;left:60px;right:60px;top:50px;font-size:44px;font-weight:700;min-height:60px}
+.slide .s-body{position:absolute;left:60px;right:60px;top:150px;bottom:50px;font-size:26px;line-height:1.45;overflow:hidden}
+.slide.layout-title .s-title{top:170px;text-align:center;font-size:54px}.slide.layout-title .s-body{top:290px;text-align:center;font-size:28px;opacity:.85}
+.slide .s-body ul{margin:0;padding-left:1.2em}.slide img{max-width:100%}
+.slide.theme-blue{background:linear-gradient(135deg,#1e3c72,#2a5298);color:#fff}.slide.theme-dark{background:#1b1f27;color:#f1f1f1}
+.slide.theme-green{background:linear-gradient(135deg,#e8f5e9,#c8e6c9);color:#1b4d2b}.slide.theme-orange{background:linear-gradient(135deg,#ff9a44,#fc6076);color:#fff}
+.slide.theme-light .s-title{color:#d9622b}
+.present{position:fixed;inset:0;background:#000;display:flex;align-items:center;justify-content:center}.present .slide{transform-origin:center center}
+.present .counter{position:fixed;right:16px;bottom:10px;color:#888;font-size:13px;font-family:sans-serif}`;
+  const getCss = () => SLIDE_CSS;
+
+  const makePptx = async () => ({ blob: await PptxExport.build(data, doc.title), name: safeName(doc.title) + '.pptx', mimeType: MIME.pptx });
+  const makeYslides = async () => ({ blob: new Blob([JSON.stringify(data)], { type: 'application/json' }), name: safeName(doc.title) + '.yslides.json', mimeType: 'application/json' });
+
+  document.getElementById('open').onchange = async e => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    autosave.saveNow();
+    try { const nd = await importFile(f, f.name); location.href = PAGE_FOR[nd.type] + '?id=' + nd.id; }
+    catch (err) { alert(err.message); }
+  };
+
+  DriveUI.menu(document.getElementById('driveSlot'), doc, {
+    statusEl: document.getElementById('status'),
+    saves: [
+      { label: 'Uložiť na Drive (.pptx)', make: () => { autosave.saveNow(); return makePptx(); } },
+      { label: 'Uložiť na Drive (upraviteľné .yslides)', make: () => { autosave.saveNow(); return makeYslides(); } }
+    ]
+  });
+
   document.getElementById('export').onchange = async e => {
     const v = e.target.value; e.target.value = '';
     if (v === 'pdf') { printSlides(); return; }
+    try {
+      if (v === 'pptx') { const f = await makePptx(); download(f.name, f.blob); return; }
+      if (v === 'yslides') { const f = await makeYslides(); download(f.name, f.blob); return; }
+    } catch (err) { alert('Export zlyhal: ' + err.message); return; }
     if (v === 'html') {
-      const css = await fetch('css/style.css').then(r => r.text()).catch(() => '');
+      const css = getCss();
       const slides = JSON.stringify(data.slides.map(s => slideHtml(s, false)));
       const out = `<!doctype html><html lang="sk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapeHtml(doc.title)}</title><style>${css}
@@ -179,7 +214,7 @@ p.addEventListener('click',()=>{if(i<S.length-1){i++;show();}});addEventListener
   function printSlides() {
     const w = window.open('', '_blank');
     if (!w) { alert('Povoľte vyskakovacie okná pre tlač.'); return; }
-    fetch('css/style.css').then(r => r.text()).then(css => {
+    Promise.resolve(getCss()).then(css => {
       w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(doc.title)}</title><style>${css}
 @page{size:${W}px ${H}px;margin:0}body{background:#fff;margin:0}.slide{page-break-after:always;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head>
 <body>${data.slides.map(s => slideHtml(s, false)).join('')}</body></html>`);

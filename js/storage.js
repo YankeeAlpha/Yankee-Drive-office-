@@ -109,3 +109,78 @@ function bindTitle(doc, input, autosave) {
     autosave.schedule();
   });
 }
+
+/* Načítanie knižnice na požiadanie (funguje aj pri otvorení zo súboru file://) */
+const _loaded = {};
+function loadScript(src) {
+  if (!_loaded[src]) {
+    _loaded[src] = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src; s.onload = resolve;
+      s.onerror = () => { delete _loaded[src]; reject(new Error('Nepodarilo sa načítať ' + src)); };
+      document.head.appendChild(s);
+    });
+  }
+  return _loaded[src];
+}
+
+const PAGE_FOR = { writer: 'writer.html', sheet: 'sheet.html', slides: 'slides.html' };
+const MIME = {
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  yslides: 'application/json'
+};
+
+/* Prevedie súbor (Blob/File) na dokument Yankee Office. Vracia uložený dokument. */
+async function importFile(blob, filename) {
+  const ext = (filename.match(/\.([^.]+)$/) || [, ''])[1].toLowerCase();
+  const base = filename.replace(/\.yslides\.json$/i, '').replace(/\.[^.]+$/, '') || 'Dokument';
+  if (ext === 'docx') {
+    const html = await Docx.toHtml(await blob.arrayBuffer());
+    return Store.create('writer', base, html);
+  }
+  if (['xlsx', 'xlsm', 'xls', 'ods', 'csv', 'tsv'].includes(ext)) {
+    return Store.create('sheet', base, await XlsxIO.read(blob, ext));
+  }
+  if (/\.yslides(\.json)?$/i.test(filename) || ext === 'json') {
+    const data = JSON.parse(await blob.text());
+    if (!data || !Array.isArray(data.slides)) throw new Error('Súbor nie je prezentácia Yankee Office.');
+    return Store.create('slides', base, data);
+  }
+  if (['html', 'htm', 'doc', 'txt', 'md', 'rtf'].includes(ext)) {
+    const t = await blob.text();
+    let html;
+    if (ext === 'txt' || ext === 'md') html = t.split(/\r?\n/).map(l => '<p>' + (escapeHtml(l) || '<br>') + '</p>').join('');
+    else if (ext === 'rtf') throw new Error('Formát RTF nie je podporovaný – uložte ho ako .docx.');
+    else {
+      if (ext === 'doc' && !/<html|<body|<p[\s>]/i.test(t)) throw new Error('Starý binárny formát .doc nie je podporovaný – otvorte ho vo Worde a uložte ako .docx.');
+      const m = t.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+      html = sanitizeHtml(m ? m[1] : t);
+    }
+    return Store.create('writer', base, html);
+  }
+  if (ext === 'pptx') throw new Error('Otváranie .pptx zatiaľ nie je podporované. Prezentácie sa dajú do .pptx ukladať.');
+  throw new Error('Nepodporovaný typ súboru: .' + ext);
+}
+
+function sanitizeHtml(html) {
+  const tmp = new DOMParser().parseFromString('<body>' + html + '</body>', 'text/html').body;
+  tmp.querySelectorAll('script,style,iframe,object,embed,link,meta').forEach(n => n.remove());
+  tmp.querySelectorAll('*').forEach(n => [...n.attributes].forEach(a => {
+    if (/^on/i.test(a.name) || (/^(href|src)$/i.test(a.name) && /^\s*javascript:/i.test(a.value))) n.removeAttribute(a.name);
+  }));
+  return tmp.innerHTML;
+}
+
+function toast(msg, ms = 3500) {
+  let el = document.getElementById('toast');
+  if (!el) { el = document.createElement('div'); el.id = 'toast'; el.className = 'toast'; document.body.appendChild(el); }
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), ms);
+}
+
+/* Registrácia offline režimu (PWA) – len pri http(s) */
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => { }));
+}
